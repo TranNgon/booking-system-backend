@@ -1,46 +1,217 @@
-# Lesson 1 - Project Setup + Environment
+# Buổi 1: Project Setup + Environment
 
-## Introduction
-In this lesson, we'll cover the basics of setting up your project environment for the booking system backend.
+## 🎯 Mục tiêu
+Sau buổi học này bạn sẽ hiểu:
+- Cách tổ chức một Node.js/TypeScript project production-ready
+- Mục đích của từng file cấu hình
+- Cách Docker Compose giúp quản lý infrastructure cục bộ
+- Cách Prisma ORM kết nối với PostgreSQL
 
-## Prerequisites
-Before you begin, you should have:
-1. **Node.js**: Ensure that Node.js is installed on your machine. You can download it from [Node.js Official Site](https://nodejs.org).
-2. **Git**: Make sure you have Git installed. This will help you manage your project files. Download from [Git Official Site](https://git-scm.com).
+---
 
-## Step 1: Cloning the Repository
-To get started, you will need to clone the project repository:
+## 📁 Giải thích từng file
 
-```bash
-git clone https://github.com/TranNgon/booking-system-backend.git
-cd booking-system-backend
+### 1. `package.json` — Khai báo project và dependencies
+
+```json
+{
+  "dependencies": {
+    "express": "Framework HTTP",
+    "cors": "Cho phép cross-origin requests",
+    "dotenv": "Load biến môi trường từ .env",
+    "@prisma/client": "Database client (tự sinh từ schema)",
+    "axios": "HTTP client để gọi API ngoài"
+  },
+  "devDependencies": {
+    "typescript": "Transpiler TypeScript → JavaScript",
+    "ts-node": "Chạy TypeScript trực tiếp (không cần build)",
+    "nodemon": "Tự restart server khi file thay đổi",
+    "prisma": "CLI để migrate DB, generate client"
+  }
+}
 ```
 
-## Step 2: Installing Dependencies
-Once you have cloned the repository, you need to install the necessary dependencies. Run the following command:
+**Scripts quan trọng:**
+- `npm run dev` → Dùng `nodemon` + `ts-node` để hot-reload trong development
+- `npm run build` → Compile TypeScript sang JavaScript vào thư mục `dist/`
+- `npm start` → Chạy file đã compile (production)
+- `npm run prisma:migrate` → Tạo/cập nhật bảng trong database
+
+---
+
+### 2. `tsconfig.json` — Cấu hình TypeScript
+
+```json
+{
+  "target": "ES2020",    // Compile sang JavaScript ES2020
+  "module": "commonjs",  // Dùng require() (Node.js style)
+  "outDir": "dist",      // Output ra thư mục dist/
+  "rootDir": "src",      // Source code ở thư mục src/
+  "strict": true         // Bật tất cả type checks nghiêm ngặt
+}
+```
+
+**Tại sao cần TypeScript?**
+- Phát hiện lỗi lúc compile thay vì lúc runtime
+- IDE auto-complete và type hints
+- Code dễ đọc, dễ maintain hơn
+
+---
+
+### 3. `.env` — Biến môi trường (KHÔNG commit lên Git)
+
+```
+DATABASE_URL  → Connection string tới PostgreSQL
+REDIS_URL     → Connection string tới Redis
+PORT          → Port server lắng nghe
+JWT_SECRET    → Khóa ký JWT token (phải giữ bí mật!)
+```
+
+**⚠️ Quan trọng:** File `.env` chứa secrets → luôn có trong `.gitignore`
+
+---
+
+### 4. `.env.example` — Template biến môi trường (commit lên Git)
+
+File này giúp developer mới biết cần set những biến gì, nhưng không chứa giá trị thực.
+
+---
+
+### 5. `.gitignore` — Các file/thư mục không commit
+
+```
+node_modules/  → Dependencies (rất nặng, install lại từ package.json)
+.env           → Secrets
+dist/          → Build artifacts (generate lại từ source)
+logs/          → Log files
+```
+
+---
+
+### 6. `docker-compose.yml` — Infrastructure cục bộ
+
+Docker Compose tạo 2 containers:
+
+**PostgreSQL 15:**
+```yaml
+postgres:
+  image: postgres:15
+  environment:
+    POSTGRES_DB: booking_system  # Tạo database tự động
+  ports:
+    - '5432:5432'                # host:container
+  volumes:
+    - postgres_data:/var/lib/postgresql/data  # Persistent storage
+```
+
+**Redis 7.0:**
+```yaml
+redis:
+  image: redis:7.0
+  ports:
+    - '6379:6379'
+```
+
+**Tại sao dùng Docker Compose?**
+- Không cần cài PostgreSQL/Redis trực tiếp trên máy
+- Mọi developer trong team có cùng môi trường
+- Dễ dàng reset, xóa, tạo lại
+
+---
+
+### 7. `prisma/schema.prisma` — Database schema
+
+```prisma
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("user")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+```
+
+**Prisma hoạt động như thế nào?**
+1. Bạn định nghĩa schema trong `schema.prisma`
+2. Chạy `prisma migrate dev` → Prisma tạo SQL migration và apply vào DB
+3. Chạy `prisma generate` → Prisma sinh TypeScript client với full type safety
+
+---
+
+### 8. `src/config/database.ts` — Prisma Client instance
+
+```typescript
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient({ log: ['query', 'error'] });
+export default prisma;
+```
+
+Export một instance duy nhất (singleton pattern) để tái sử dụng trong toàn bộ app.
+
+---
+
+### 9. `src/app.ts` — Express application
+
+```typescript
+app.use(cors())          // Cho phép browser gọi API
+app.use(express.json())  // Parse JSON request body
+
+// Health check endpoint
+app.get('/api/health', ...)
+
+// 404 handler
+app.use((req, res) => res.status(404).json(...))
+
+// Error handler (4 tham số = error middleware)
+app.use((error, req, res, next) => ...)
+```
+
+---
+
+### 10. `src/index.ts` — Entry point
+
+```typescript
+import app from './app';
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+```
+
+Tách `app.ts` và `index.ts` để dễ test (import app mà không start server).
+
+---
+
+## ✅ Checklist setup
 
 ```bash
+# 1. Cài dependencies
 npm install
+
+# 2. Tạo .env
+cp .env.example .env
+
+# 3. Start database và Redis
+docker-compose up -d
+
+# 4. Tạo tables trong database
+npm run prisma:migrate
+
+# 5. Start server
+npm run dev
+
+# 6. Test health check
+curl http://localhost:3000/api/health
+# → {"status":"OK","message":"Booking System API is running"}
 ```
 
-This command reads the `package.json` file and installs all the required packages.
+---
 
-## Step 3: Setting Up Environment Variables
-You will need to create a `.env` file in the root of your project for environment variables. Here’s how you can set it up:
-1. Copy the example configuration file:
-   ```bash
-   cp .env.example .env
-   ```
-2. Open the `.env` file and fill in the necessary values, such as database connection strings and API keys.
+## 🔍 Kiểm tra kết quả
 
-## Step 4: Running the Application
-After setting everything up, you can start the application using:
-
-```bash
-npm start
-```
-
-Visit `http://localhost:3000` in your browser to see the application in action.
-
-## Conclusion
-Now that you have set up the initial environment for the booking system backend, you can proceed to explore the project further. This includes implementing features, running tests, and managing the backend functionality.
+| Lệnh | Kết quả mong đợi |
+|---|---|
+| `docker ps` | Thấy `booking_postgres` và `booking_redis` đang running |
+| `npm run dev` | Server khởi động, log "🚀 Server running on port 3000" |
+| `curl localhost:3000/api/health` | `{"status":"OK"}` |
+| `npx prisma studio` | Mở GUI quản lý DB tại localhost:5555 |
